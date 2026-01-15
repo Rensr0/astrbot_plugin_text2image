@@ -108,7 +108,7 @@ class Text2ImagePlugin(Star):
         return text if text else None
 
     @filter.on_decorating_result(priority=-10)
-    async def on_decorating_result(self, event: AstrMessageEvent):
+    async def on_decorating_result(self, event: AstrMessageEvent, *args, **kwargs):
         if not self._cfg_bool("enable_render", True):
             return
 
