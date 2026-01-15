@@ -137,6 +137,20 @@ class Text2ImagePlugin(Star):
         if not image_path:
             return
 
+        # 先读取图片为 base64（统一处理，避免文件问题）
+        try:
+            with open(image_path, 'rb') as f:
+                img_data = base64.b64encode(f.read()).decode('utf-8')
+        except Exception as e:
+            logger.error(f"[文字转图片] 读取图片失败: {e}")
+            return
+        finally:
+            # 读取完成后立即删除临时文件
+            try:
+                os.remove(image_path)
+            except Exception:
+                pass
+
         # 检查是否需要自动撤回
         recall_enabled = self._cfg_bool("recall_enabled", False)
         recall_time = int(self.cfg().get("recall_time", 0))
@@ -150,25 +164,15 @@ class Text2ImagePlugin(Star):
                 logger.debug(f"[文字转图片] 检测到 aiocqhttp 事件, client={client}")
                 
                 if client is not None:
+                    group_id = event.get_group_id()
+                    user_id = event.get_sender_id()
+                    
+                    logger.debug(f"[文字转图片] group_id={group_id}, user_id={user_id}")
+                    
+                    # 构建消息（使用 base64）
+                    msg = [{'type': 'image', 'data': {'file': f'base64://{img_data}'}}]
+                    
                     try:
-                        group_id = event.get_group_id()
-                        user_id = event.get_sender_id()
-                        
-                        logger.debug(f"[文字转图片] group_id={group_id}, user_id={user_id}")
-                        
-                        # 读取图片并转为 base64（避免容器间文件路径问题）
-                        with open(image_path, 'rb') as f:
-                            img_data = base64.b64encode(f.read()).decode('utf-8')
-                        
-                        # 清理临时文件（读取完成后立即删除）
-                        try:
-                            os.remove(image_path)
-                        except Exception:
-                            pass
-                        
-                        # 构建消息（使用 base64）
-                        msg = [{'type': 'image', 'data': {'file': f'base64://{img_data}'}}]
-                        
                         # 发送消息
                         if group_id:
                             send_result = await client.send_group_msg(group_id=int(group_id), message=msg)
@@ -189,24 +193,22 @@ class Text2ImagePlugin(Star):
                         event.stop_event()
                         return
                     except Exception as e:
+                        error_str = str(e)
+                        # 超时错误（1200）消息可能已发送，不回退
+                        if 'retcode=1200' in error_str or 'Timeout' in error_str:
+                            logger.warning(f"[文字转图片] 发送超时但消息可能已送达，无法撤回")
+                            result.chain.clear()
+                            event.stop_event()
+                            return
                         logger.warning(f"[文字转图片] 撤回模式发送失败: {e}，回退普通模式")
-                        # 异常时文件可能还未删除，继续走普通模式会处理
             else:
                 logger.debug(f"[文字转图片] 非 aiocqhttp 事件类型，使用普通模式")
 
-        # 普通模式：替换消息链（使用 base64 避免临时文件残留）
+        # 普通模式：替换消息链
         try:
-            with open(image_path, 'rb') as f:
-                img_data = base64.b64encode(f.read()).decode('utf-8')
             result.chain = [Comp.Image(file=f'base64://{img_data}')]
         except Exception as exc:
             logger.error("[文字转图片] 创建图片组件失败: %s", exc)
-        finally:
-            # 清理临时文件
-            try:
-                os.remove(image_path)
-            except Exception:
-                pass
 
     @filter.on_llm_response(priority=100000)
     async def save_llm_response(self, event: AstrMessageEvent, resp: LLMResponse):
