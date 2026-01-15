@@ -1,6 +1,6 @@
 name: astrbot_plugin_text2image
 display_name: 文字转图片
-desc: 将 Bot 文本回复渲染为图片，自适应高度，手机宽度，3x 高清，支持自动撤回
-version: v1.0.0
+desc: 将 Bot 文本回复渲染为图片，自适应高度，手机宽度，2x 高清，支持 Emoji，支持自动撤回
+version: v1.1.0
 author: Rensr0
 repo: https://github.com/Rensr0/astrbot_plugin_text2image

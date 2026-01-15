@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.provider import LLMResponse
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star
 
 import astrbot.api.message_components as Comp
 
@@ -35,13 +35,6 @@ PLAIN_COMPONENT_TYPES = tuple(
 )
 
 
-@register(
-    "astrbot_plugin_text2image",
-    "bvzrays",
-    "文字转图片：将 Bot 的文字回复渲染为图片，支持自动撤回",
-    "1.1.0",
-    "https://github.com/bvzrays/astrbot_plugin_chuanhuatong",
-)
 class Text2ImagePlugin(Star):
     """文字转图片插件"""
 
@@ -167,6 +160,12 @@ class Text2ImagePlugin(Star):
                         with open(image_path, 'rb') as f:
                             img_data = base64.b64encode(f.read()).decode('utf-8')
                         
+                        # 清理临时文件（读取完成后立即删除）
+                        try:
+                            os.remove(image_path)
+                        except Exception:
+                            pass
+                        
                         # 构建消息（使用 base64）
                         msg = [{'type': 'image', 'data': {'file': f'base64://{img_data}'}}]
                         
@@ -188,23 +187,22 @@ class Text2ImagePlugin(Star):
                         # 清空原消息链，阻止重复发送
                         result.chain.clear()
                         event.stop_event()
-                        
-                        # 清理临时文件
-                        try:
-                            os.remove(image_path)
-                        except Exception:
-                            pass
                         return
                     except Exception as e:
                         logger.warning(f"[文字转图片] 撤回模式发送失败: {e}，回退普通模式")
+                        # 异常时文件可能还未删除，继续走普通模式会处理
             else:
                 logger.debug(f"[文字转图片] 非 aiocqhttp 事件类型，使用普通模式")
 
-        # 普通模式：替换消息链
+        # 普通模式：替换消息链（使用 base64 避免临时文件残留）
         try:
-            result.chain = [Comp.Image.fromFileSystem(image_path)]
+            with open(image_path, 'rb') as f:
+                img_data = base64.b64encode(f.read()).decode('utf-8')
+            result.chain = [Comp.Image(file=f'base64://{img_data}')]
         except Exception as exc:
             logger.error("[文字转图片] 创建图片组件失败: %s", exc)
+        finally:
+            # 清理临时文件
             try:
                 os.remove(image_path)
             except Exception:
